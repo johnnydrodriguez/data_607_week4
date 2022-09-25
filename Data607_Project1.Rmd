@@ -1,0 +1,225 @@
+---
+title: "Data607_Project1"
+author: "Johnny Rodriguez"
+date: "2022-09-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+<br/>
+
+#### Load the library & Import the CSV
+
+
+Dplyer will be used to transform the csv file.  The file is imported using the '|' separator to clean up the file upon import.  This creates a pseudo-tabular dataframe.
+
+
+```{r}
+library (dplyr)
+
+#Import the CSV
+sourcecsv <- read.table("https://raw.githubusercontent.com/johnnydrodriguez/data_607_week4/main/tournamentinfo.txt", header = FALSE, sep = '|', na.strings="", fill = TRUE)
+
+knitr::kable(head(sourcecsv))
+```
+<br/>
+
+#### Cleaning up the imported source CSV
+
+
+To begin cleaning up the source file, a column of NA's was removed, rows with NA values were removed, and the first two unneeded rows of the imported file were removed as well.
+
+Once these NA rows and columns were eliminated, the remaining columns could be renamed.  
+
+And finally, leading and trailing white spaces in several columns were removed.
+
+```{r}
+
+#Drops the unneeded NA column
+sourcecsv <- sourcecsv[-c(11)]
+
+#Drops the unneeded NA rows
+sourcecsv <- na.omit(sourcecsv)
+
+#Drops the unneeded first 2 rows
+sourcecsv <- sourcecsv[-c(1:2),]
+
+#Renames the remaining columns
+colnames(sourcecsv) <- c('ID', 'Name', 'Points', 'Round1', 'Round2', 'Round3', 'Round4', 'Round5', 'Round6', 'Round7')
+
+#Removes the leading and trailing white spaces
+sourcecsv$ID <- trimws(sourcecsv$ID, which = c("both"))
+sourcecsv$Name <- trimws(sourcecsv$Name, which = c("both"))
+sourcecsv$Points <- trimws(sourcecsv$Points, which = c("both"))
+
+knitr::kable(head(sourcecsv))
+```
+<br/>
+
+#### Splitting & Merging the Source CSV data frame
+Because of the alternating pattern of the sourcecsv dataframe rows, the sourcecsv dataframe was split based on the ID column.  This allowed for two dataframes: one based on the actual ID (numerical) values and the other based on the (non-numerical) State values.
+
+The first table retained the column names of the original sourcecsv.  The second table column names were updated to reflect their column data.
+
+Once both tables were split, they were re-merged based on index to create a new flat, wide table. The merged table is where all additional transformation and calculation will occur.
+
+
+```{r}
+
+#Creates table 1 based on numerical ID data values the column
+chess1 <- sourcecsv %>% filter(!(is.na(as.numeric(sourcecsv$ID))))
+
+#Creates table 2 based on non numerical State values in column
+chess2 <- sourcecsv %>% filter((is.na(as.numeric(sourcecsv$ID))))
+
+#Renames columns in second split table
+colnames(chess2) <- c('State', 'Rank', 'Nvalue', 'R1Color', 'R2Color', 'R3Color', 'R4Color', 'R5Color', 'R6Color', 'R7Color')
+
+#Merges the split tables into a single flat, wide table by index.
+chess3 <- merge(chess1, chess2, by=0)
+
+knitr::kable(head(chess3))
+
+```
+<br/>
+
+#### Split Opponent Result and Opponent ID columns
+Since the Opponent ID column for every round is needed for the calculation, the single Round columns containing this information were split into the two separate Round Result and Round Opponent columns.
+
+
+```{r}
+
+chess3 <- tidyr::separate(data = chess3, col = Round1, sep = "  ", into = c('R1Result', 'R1Opponent'), remove = TRUE)
+chess3 <- tidyr::separate(data = chess3, col = Round2, sep = "  ", into = c('R2Result', 'R2Opponent'), remove = TRUE)
+chess3 <- tidyr::separate(data = chess3, col = Round3, sep = "  ", into = c('R3Result', 'R3Opponent'), remove = TRUE)
+chess3 <- tidyr::separate(data = chess3, col = Round4, sep = "  ", into = c('R4Result', 'R4Opponent'), remove = TRUE)
+chess3 <- tidyr::separate(data = chess3, col = Round5, sep = "  ", into = c('R5Result', 'R5Opponent'), remove = TRUE)
+chess3 <- tidyr::separate(data = chess3, col = Round6, sep = "  ", into = c('R6Result', 'R6Opponent'), remove = TRUE)
+chess3 <- tidyr::separate(data = chess3, col = Round7, sep = "  ", into = c('R7Result', 'R7Opponent'), remove = TRUE)
+
+knitr::kable(head(chess3[c('Name', 'R1Opponent', 'R2Opponent', 'R3Opponent', 'R4Opponent', 'R5Opponent', 'R6Opponent', 'R7Opponent')]))
+
+```
+<br/>
+
+#### Split Column to Extract PreRating Value
+In the initial split of the sourcecsv dataframe, the column containing the PreRating values named 'Rank'.  This column contained multiple separate values that were split from the PreRating value.  
+
+To perform this split correctly, the white spaces within the Rank column were removed. This permitted the column split to occur along the ":" and "P" characters as delimiters.
+
+
+```{r}
+
+#Removes the internal white spaces between the various values
+chess3$Rank <- gsub(" ","",chess3$Rank) 
+
+#Splits the initial Rank column into its four distinct values
+chess3 <- tidyr::separate(data = chess3,col = Rank, sep = ":", into = c('left', 'right'), remove = TRUE)
+chess3 <- tidyr::separate(data = chess3,col = right, sep = "-", into = c('left2', 'right2'), remove = TRUE)
+chess3 <- tidyr::separate(data = chess3,col = left2, sep = "P", into = c('left3', 'right3'), remove = TRUE)
+
+#Renames the resulting columns including the PreRating column used in the average opponent calculation
+chess3 <- chess3 %>% rename(Rvalue = left, PreRating = left3, Provisional = right3, PostRating = right2)
+
+knitr::kable(head(chess3[c('Name', 'PreRating')]))
+```
+<br/>
+
+####  Converting Columns to Numeric
+To perform the remaining transformations, several columns were converted to numeric.  This has a secondary effect of removing leading or trailing whitespace characters.
+
+
+```{r}
+
+# ID, Points, PreRating, and all Opponent id columns were converted to numeric.
+chess3$ID <- as.numeric(as.character(chess3$ID))
+chess3$Points <- as.numeric(as.character(chess3$Points))
+chess3$PreRating <- as.numeric(as.character(chess3$PreRating))
+chess3$R1Opponent <- as.numeric(as.character(chess3$R1Opponent))
+chess3$R2Opponent <- as.numeric(as.character(chess3$R2Opponent))
+chess3$R3Opponent <- as.numeric(as.character(chess3$R3Opponent))
+chess3$R4Opponent <- as.numeric(as.character(chess3$R4Opponent))
+chess3$R5Opponent <- as.numeric(as.character(chess3$R5Opponent))
+chess3$R6Opponent <- as.numeric(as.character(chess3$R6Opponent))
+chess3$R7Opponent <- as.numeric(as.character(chess3$R7Opponent))
+
+
+str(chess3)
+```
+<br/>
+
+#### Self Merges to create Round Opponent PreRating columns for all 7 rounds
+
+Through 7 table self merges, a new column was added for every round opponent's PreRating value.  This merge has the affect of matching opponent to their PreRating and inserting the PreRating value in the new column.
+
+After each merge, the resulting columns are renamed to reflect the round data.  All NA rows (created by Bi weeks where no opponent is matched) are also deleted after merge.
+
+
+```{r}
+
+# Merges Round 1 Opponents and PreRatings and inserts value into Round 1 PreRating column
+chess3 <- merge(chess3, chess3[c("ID", "PreRating") ], by.x = "R1Opponent", by.y = "ID", all = TRUE, na.rm = TRUE)
+chess3 <- chess3 %>% rename(R1ORating = PreRating.y, PreRating = PreRating.x)
+chess3 <- chess3 %>% filter(!is.na(ID))
+
+# Merges Round 2 Opponents and PreRatings and inserts value into Round 2 PreRating column
+chess3 <- merge(chess3, chess3[c("ID" , "PreRating") ], by.x = "R2Opponent", by.y = "ID", all = TRUE)
+chess3 <- chess3 %>% rename(R2ORating = PreRating.y, PreRating = PreRating.x)
+chess3 <- chess3 %>% filter(!is.na(ID))
+
+# Merges Round 3 Opponents and PreRatings and inserts value into Round 3 PreRating column
+chess3 <- merge(chess3, chess3[c("ID" , "PreRating") ], by.x = "R3Opponent", by.y = "ID", all = TRUE)
+chess3 <- chess3 %>% rename(R3ORating = PreRating.y, PreRating = PreRating.x)
+chess3 <- chess3 %>% filter(!is.na(ID))
+
+# Merges Round 4 Opponents and PreRatings and inserts value into Round 4 PreRating column
+chess3 <- merge(chess3, chess3[c("ID" , "PreRating") ], by.x = "R4Opponent", by.y = "ID", all = TRUE)
+chess3 <- chess3 %>% rename(R4ORating = PreRating.y, PreRating = PreRating.x)
+chess3 <- chess3 %>% filter(!is.na(ID))
+
+# Merges Round 5 Opponents and PreRatings and inserts value into Round 5 PreRating column
+chess3 <- merge(chess3, chess3[c("ID" , "PreRating") ], by.x = "R5Opponent", by.y = "ID", all = TRUE)
+chess3 <- chess3 %>% rename(R5ORating = PreRating.y, PreRating = PreRating.x)
+chess3 <- chess3 %>% filter(!is.na(ID))
+
+# Merges Round 6 Opponents and PreRatings and inserts value into Round 6 PreRating column
+chess3 <- merge(chess3, chess3[c("ID" , "PreRating") ], by.x = "R6Opponent", by.y = "ID", all = TRUE)
+chess3 <- chess3 %>% rename(R6ORating = PreRating.y, PreRating = PreRating.x)
+chess3 <- chess3 %>% filter(!is.na(ID))
+
+# Merges Round 7 Opponents and PreRatings and inserts value into Round 7 PreRating column
+chess3 <- merge(chess3, chess3[c("ID" , "PreRating") ], by.x = "R7Opponent", by.y = "ID", all = TRUE)
+chess3 <- chess3 %>% rename(R7ORating = PreRating.y, PreRating = PreRating.x)
+chess3 <- chess3 %>% filter(!is.na(ID))
+
+knitr::kable(head(chess3[c('Name', 'R1ORating', 'R2ORating', 'R3ORating', 'R4ORating', 'R5ORating', 'R6ORating', 'R7ORating')]))
+
+```
+<br/>
+
+#### Calculate the Average Opponent Rating
+
+Once the dataframe has been completely transformed and the opponent PreRating columns have been added, the Average Opponent PreRating for all opponents for all rounds is calculated.
+
+```{r}
+
+#Calculates the average opponent PreRating for all opponents, all rounds
+chess3 <- mutate(chess3, AvgOpponentRating= round(rowMeans(select(chess3, "R1ORating","R2ORating","R3ORating","R4ORating","R5ORating","R6ORating","R7ORating"), na.rm = TRUE)))
+
+chess3 <- chess3[order(chess3$ID),]
+knitr::kable(head(chess3[c('Name', 'State', 'Points', 'PreRating', 'AvgOpponentRating')]))
+
+```
+<br/>
+
+#### Write the output CSV file with subset of columns: chess_outfile.csv
+Writes the CSV file with Player’s Name, Player’s State, Total Number of Points, Player’s Pre-Rating, and Average Pre Chess Rating of Opponents
+
+```{r}
+#Writes output CSV using subset of columns from the transformed dataframe
+
+write.csv(chess3[,c("Name","State", "Points", "PreRating", "AvgOpponentRating")], file="chess_outfile.csv",row.names=FALSE)
+
+```
